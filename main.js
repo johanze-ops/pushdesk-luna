@@ -308,6 +308,13 @@ async function connect() {
   // Never leave a touch held: a held touch writes automation.
   const letGo = () => { surface?.releaseAll(); fader?.release(); updateLeds({ off: true }); };
   setInterval(() => updateLeds(), 5000); // resend now and then: another app may have written over them
+  // A Push (or fader) switched on after LUNA started can join the device list before its name
+  // is filled in, so the change above misses it. Keep looking while one isn't attached.
+  setInterval(() => {
+    const found = (port) => luna.midiDevices.items.some((d) => d.name.value === port && d.inputPort);
+    if (!stopListening && found(L.PUSH.PORT)) attachPush();
+    if (!fader && session && found(L.FADER.PORT)) attachFader();
+  }, 2000);
   setInterval(() => { publishScreen(true); publishMeters(); }, 1000); // the screen's heartbeat
   window.addEventListener('pagehide', letGo);
   luna.status.onChange(() => { if (luna.status.value === 'disconnected') { letGo(); pushStatus(false, 'LUNA disconnected'); } });
