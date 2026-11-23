@@ -1,0 +1,33 @@
+# Favourites for the UADx SSL E Channel Strip.
+# One parameter per line, as named in ~/.pushdesk/params/*.tsv. Eight per Push
+# page. Everything not listed follows on later pages.
+
+# page 1 — EQ, low to high: Freq, Gain (and Q for the mids)
+LF Freq
+LF Gain
+LMF Freq
+LMF Gain
+LMF Q
+HMF Freq
+HMF Gain
+HMF Q
+
+# page 2 — rest of the EQ
+HF Freq
+HF Gain
+HP Freq
+LP Freq
+EQ In
+EQ Type
+EQ Pre Dyn
+EQ Dyn SC
+
+# page 3 — dynamics
+COMP Ratio
+COMP Thresh
+COMP Release
+COMP In
+EXP Thresh
+EXP Range
+EXP Release
+EXP In

@@ -1,0 +1,80 @@
+# Favourites for the API Vision Channel Strip (LUNA's console extension).
+# One parameter per line, as LUNA names it. Eight per Push page.
+# Everything not listed follows on later pages.
+# The strip has two EQs (EQ Select: 550L or 560L): pages 1-2 follow whichever is chosen.
+# @section marks where the Push's EQ and DYN buttons land (DYN again: the next DYN section).
+
+@section EQ
+@if EQ Select = 560L
+# page 1 — 560 graphic EQ, low to high
+560 31Hz
+560 63Hz
+560 125Hz
+560 250Hz
+560 500Hz
+560 1kHz
+560 2kHz
+560 4kHz
+
+# page 2 — the top two bands, the EQ switches, and the 215 filters
+560 8kHz
+560 16kHz
+EQ On
+EQ Select
+215 HP Filter
+215 LP Filter
+215 On
+EQ Predyn
+@else
+# page 1 — 550 EQ, low to high: Freq, Gain
+550 LF Freq
+550 LF Gain
+550 LMF Freq
+550 LMF Gain
+550 HMF Freq
+550 HMF Gain
+550 HF Freq
+550 HF Gain
+
+# page 2 — EQ switches, and the 215 filters
+550 LF Filter
+550 HF Filter
+EQ On
+EQ Select
+215 HP Filter
+215 LP Filter
+215 On
+EQ Predyn
+@end
+
+# page 3 — 225 compressor, and the strip's output
+@section DYN
+225 Thresh
+225 Ratio
+225 Attack
+225 Release
+225 Knee
+225 Type
+225 On
+Level
+
+# page 4 — 235 gate / expander
+@section DYN
+235 Thresh
+235 Depth
+235 Attack
+235 Release
+235 R/H
+235 G/E
+235 On
+SC Link
+
+# page 5 — input
+Input Select
+Mic Gain
+Line Gain
+Pad
+Phase
+Cut Filter
+215 SC
+Power

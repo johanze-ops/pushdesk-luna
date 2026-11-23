@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.lunaaddon
+*.zip
+.DS_Store
+helper/build/
+# Pete's own route to the Push screen (uses his private PushDesk display); kept locally
+companion/

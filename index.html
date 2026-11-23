@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PushDesk</title>
+  <style>
+    :root { color-scheme: dark; --accent: #F7C449; --bg: #111; --panel: #1a1a1a; --line: #2a2a2a; --text: #e2e2e2; --dim: #8a8a8a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 12px -apple-system, Helvetica, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    header { display: flex; align-items: center; gap: 14px; padding: 5px 12px; background: var(--panel); border-bottom: 1px solid var(--line); white-space: nowrap; }
+    #mode { font-weight: 700; letter-spacing: .08em; color: #111; background: var(--accent); padding: 2px 8px; border-radius: 3px; }
+    #bank, #focus { color: var(--dim); }
+    #focus b { color: var(--text); font-weight: 500; }
+    #push { margin-left: auto; color: var(--dim); }
+    #push.ok::before { content: '● '; color: #57ab5a; }
+    #push.off::before { content: '● '; color: #e5534b; }
+    #strips { flex: 1; display: grid; grid-template-columns: repeat(8, 1fr); gap: 1px; background: var(--line); min-height: 0; }
+    .strip { background: var(--bg); display: flex; flex-direction: column; min-width: 0; padding: 6px 7px 8px; gap: 5px; position: relative; }
+    .strip.empty { opacity: .25; }
+    .strip.touched { background: #1d1a10; }
+    .strip.selected .name { color: var(--accent); }
+    .colour { height: 3px; border-radius: 2px; background: #444; }
+    .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .value { font: 12px Menlo, monospace; color: var(--dim); }
+    .body { flex: 1; display: flex; gap: 6px; min-height: 0; }
+    .bar { flex: 1; background: #1f1f1f; border-radius: 3px; position: relative; overflow: hidden; }
+    .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: #4a4a4a; transform-origin: bottom; transform: scaleY(0); }
+    .strip.touched .fill { background: var(--accent); }
+    .pan { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--accent); left: 50%; margin-left: -1px; }
+    .meter { width: 6px; background: #1f1f1f; border-radius: 2px; position: relative; overflow: hidden; }
+    .meter .lvl { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: linear-gradient(to top, #57ab5a 0%, #57ab5a 70%, #e2c541 88%, #e5534b 100%); transform-origin: bottom; transform: scaleY(0); }
+    .enc { position: absolute; top: 4px; right: 6px; font-size: 10px; color: #555; }
+    #helper { display: flex; align-items: center; gap: 10px; padding: 5px 12px; background: #2a2618; color: var(--text); border-top: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
+    #helper[hidden] { display: none; }
+    #helper code { font: 11px Menlo, monospace; background: #111; padding: 3px 6px; border-radius: 3px; user-select: all; }
+    #helper button { font: inherit; background: var(--accent); color: #111; border: 0; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+    #note { padding: 4px 12px; color: var(--dim); background: var(--panel); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
+</head>
+<body>
+  <header>
+    <span id="mode">FADER</span>
+    <span id="bank">—</span>
+    <span id="focus"></span>
+    <span id="fader" style="color: var(--dim)"></span>
+    <span id="push" class="off">Push: looking…</span>
+  </header>
+  <div id="strips"></div>
+  <div id="helper" hidden>
+    <span>Push screen: install the PushDesk helper (once) by pasting this into Terminal:</span>
+    <code id="helperCmd">curl -fsSL https://github.com/johanze-ops/pushdesk-luna/releases/latest/download/install-helper.sh | bash</code>
+    <button id="helperCopy">Copy</button>
+  </div>
+  <div id="note">Encoders: tracks · touch strip: selected track · ◀ ▶ (Page): bank · upper row a/b: FADER / PAN · Shift: fine</div>
+  <script src="vendor/luna.global.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
