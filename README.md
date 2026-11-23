@@ -1,5 +1,7 @@
 # PushDesk for LUNA
 
+![PushDesk for LUNA](images/banner.png)
+
 Use an **Ableton Push 2** as a mixing control surface in **UA LUNA**: the encoders, touch strip,
 pads and buttons drive LUNA's faders, pan, plugins and channel-strip EQ and dynamics, the way
 Push does in Live and an Avid S1 does in Pro Tools. With the optional helper, the Push's own
