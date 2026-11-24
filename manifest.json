@@ -2,7 +2,7 @@
     "package_name": "PushDesk for LUNA",
     "id": "com.ranrun.pushdesk_luna",
     "title": "PushDesk for LUNA",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "manufacturer": "JOHANZE",
     "description": "Use an Ableton Push 2 as a mixing control surface in LUNA: encoders, touch strip, pads and buttons drive faders, pan, plugins and the channel strip EQ and dynamics, with optional Push screen and motor fader support.",
     "categories": [
