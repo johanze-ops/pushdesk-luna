@@ -35,7 +35,7 @@ func rgb(_ r: Int, _ g: Int, _ b: Int, _ a: CGFloat = 1) -> CGColor {
 let BG = rgb(0, 0, 0), RULE = rgb(40, 40, 40), DIM = rgb(110, 110, 110), FAINT = rgb(55, 55, 55)
 let TEXT = rgb(210, 210, 210), ACCENT = rgb(247, 196, 73), GREEN = rgb(70, 190, 110)
 let SEL_BG = rgb(38, 32, 12), BTN_BG = rgb(14, 14, 14), BTN_ON = rgb(247, 196, 73)
-let METER_BG = rgb(24, 24, 24), TOUCH = rgb(90, 200, 255)
+let METER_BG = rgb(24, 24, 24), TOUCH = rgb(90, 200, 255), PIN = rgb(59, 142, 234)
 
 func font(_ size: CGFloat, bold: Bool = false) -> CTFont {
   let f = CTFontCreateUIFontForLanguage(bold ? .emphasizedSystem : .system, size, nil)
@@ -169,17 +169,36 @@ func drawMeter(_ c: Canvas, _ m: [Any], x: CGFloat, top: CGFloat, bottom: CGFloa
   if bool(m[5]) { c.fill(CGRect(x: x, y: top, width: CGFloat(legs) * 5 - 1, height: 3), rgb(229, 83, 75)) }
 }
 
+/// A pinned strip (Layout + select pad): a small "PIN" tag at the foot of the column, in the
+/// pads' pin blue.
+func pinMark(_ c: Canvas, _ x0: CGFloat) {
+  let y = STRIP_BOTTOM - 16
+  c.fill(CGRect(x: x0 + COL - 46, y: y, width: 26, height: 12), PIN)
+  c.text("PIN", x0 + COL - 42, y, F_SMALL, rgb(10, 10, 10))
+}
+
 func renderTracks(_ c: Canvas, _ state: J, _ meters: J) {
   let strips = state["strips"] as? [J] ?? []
   let bank = Int(num(state["bank"], 1))
+  // A view (PINS: some strips pinned) counts its bank from 0 over the free strips, as PushDesk does.
+  let view = str(state["view"]), width = Int(num(state["bankWidth"], 8))
   header(c, state, left: "TOUCH STRIP ›", mid: str(state["selectedName"]).isEmpty ? "(no track selected)" : str(state["selectedName"]),
-         right: "tracks \(bank)–\(bank + 7)")
+         right: view.isEmpty ? "tracks \(bank)–\(bank + 7)" : (width > 0 ? "\(view)  \(bank + 1)–\(bank + width)" : view))
   let mlist = meters["m"] as? [Any] ?? []
   let unity = CGFloat(num(state["unityPos"], 0.594))
   for s in strips {
     let i = Int(num(s["i"])), x0 = CGFloat(i) * COL
     c.line(x0, STRIP_TOP, x0, STRIP_BOTTOM, RULE)
-    guard bool(s["live"]) else { c.text("—", x0 + 10, STRIP_TOP + 40, F_VAL, FAINT); continue }
+    guard bool(s["live"]) else {
+      if bool(s["missing"]) { // a pinned track that has been deleted: its strip holds its place
+        c.text(str(s["name"]), x0 + 8, STRIP_TOP + 6, F_NAME, DIM, maxW: COL - 16)
+        c.text("deleted", x0 + 8, STRIP_TOP + 26, F_SMALL, FAINT)
+      } else {
+        c.text("—", x0 + 10, STRIP_TOP + 40, F_VAL, FAINT)
+      }
+      if bool(s["pinned"]) { pinMark(c, x0) }
+      continue
+    }
     let sel = bool(s["selected"])
     if sel { c.fill(CGRect(x: x0 + 1, y: STRIP_TOP, width: COL - 2, height: STRIP_BOTTOM - STRIP_TOP), SEL_BG) }
     if let col = hexColour(str(s["colour"])) { c.fill(CGRect(x: x0 + 1, y: STRIP_TOP, width: COL - 2, height: 3), col) }
@@ -194,6 +213,7 @@ func renderTracks(_ c: Canvas, _ state: J, _ meters: J) {
     let ux = bx + 1 + (bw - 2) * unity
     c.line(ux, by - 3, ux, by + 17, rgb(220, 180, 60))
     c.text("#\(Int(num(s["track"])))", x0 + 8, STRIP_TOP + 92, F_SMALL, DIM)
+    if bool(s["pinned"]) { pinMark(c, x0) }
     if bool(s["touch"]) { c.ctx.setFillColor(TOUCH); c.ctx.fillEllipse(in: CGRect(x: x0 + COL - 32, y: STRIP_TOP + 8, width: 7, height: 7)) }
     if i < mlist.count, let m = mlist[i] as? [Any] { drawMeter(c, m, x: x0 + COL - 14, top: STRIP_TOP + 6, bottom: STRIP_BOTTOM - 4) }
   }
@@ -212,7 +232,17 @@ func renderKnobset(_ c: Canvas, _ state: J, _ meters: J) {
   for k in p["knobs"] as? [J] ?? [] {
     let i = Int(num(k["i"])), x0 = CGFloat(i) * COL
     c.line(x0, STRIP_TOP, x0, STRIP_BOTTOM, RULE)
-    guard bool(k["live"]) else { c.text("—", x0 + 10, STRIP_TOP + 40, F_VAL, FAINT); continue }
+    guard bool(k["live"]) else {
+      if bool(k["missing"]) {
+        c.text(str(k["name"]), x0 + 8, STRIP_TOP + 6, F_NAME, DIM, maxW: COL - 16)
+        c.text("deleted", x0 + 8, STRIP_TOP + 26, F_SMALL, FAINT)
+      } else {
+        c.text("—", x0 + 10, STRIP_TOP + 40, F_VAL, FAINT)
+      }
+      if bool(k["pinned"]) { pinMark(c, x0) }
+      continue
+    }
+    if bool(k["pinned"]) { pinMark(c, x0) }
     let touched = bool(k["touch"])
     if touched { c.fill(CGRect(x: x0 + 1, y: STRIP_TOP, width: COL - 2, height: STRIP_BOTTOM - STRIP_TOP), SEL_BG) }
     c.text(str(k["name"]), x0 + 8, STRIP_TOP + 6, F_NAME, touched ? ACCENT : TEXT, maxW: COL - 14)

@@ -1,7 +1,7 @@
 {
   "name": "pushdesk_luna",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "PushDesk, a LUNA Add On built with @uaudio/luna-builder-sdk",
   "scripts": {

@@ -14,6 +14,7 @@ const PUSH = {
   PAGE_PREV_CC: 44,
   PAGE_NEXT_CC: 45,
   SHIFT_CC: 49,
+  LAYOUT_CC: 31,           // Layout: hold + a select pad pins that track; tap = pins off/on (PushDesk's LAYOUTS)
   FAVOURITES_CC: 46,       // up arrow: favourites <-> the full parameter list (PushDesk)
   LAST_KNOBSET_CC: 47,     // down arrow: FADER <-> the last knobset (PushDesk)
   PAD_BASE: 36,            // pads 36..99: 36 bottom-left, +8 per row up
@@ -259,17 +260,118 @@ class Surface {
     this.accum = new Map();    // stepped control -> detents not yet spent
     this.gangs = new Map();    // leader gain control -> Gang (selected faders moving together)
     this.stripGang = null;
+    // Pinned tracks (PushDesk's LAYOUTS, set from the Push): column -> { id, name }. A pinned
+    // track stays on its strip while the other strips bank around it. Saved with the session.
+    this.pins = new Map();
+    this.pinsOn = true;        // Layout tapped: all tracks, the pins kept for later
+    this.otherBankStart = 0;   // the bank position of the other view (pins on / off)
+    this.layoutHeld = false;
+    this.layoutUsed = false;   // a pad was pressed while Layout was held, so its release is no tap
+    this.onPinsChange = () => {}; // set by the page: save the pins
   }
 
   tracks() {
     return this.session.visibleTracks;
   }
 
-  /** The eight tracks under the encoders (shorter at the end of the session). */
+  /** The pins in use: column -> { id, name }, none while they're switched off. */
+  activePins() {
+    return this.pinsOn ? this.pins : new Map();
+  }
+
+  /** The tracks the free strips bank through: every track that isn't pinned. */
+  freeTracks() {
+    const pins = this.activePins();
+    if (!pins.size) return this.tracks();
+    const pinned = new Set([...pins.values()].map((p) => p.id));
+    return this.tracks().filter((t) => !pinned.has(t.id));
+  }
+
+  /** How many strips bank: 8 less the pins. */
+  bankWidth() {
+    return 8 - this.activePins().size;
+  }
+
+  /**
+   * The tracks under the encoders, by column. With no pins: the bank, shorter at the end of the
+   * session. With pins: always 8 entries, a pinned track in its own column (null when it has
+   * been deleted: the strip stays empty, so nothing shifts) and the free tracks in the others.
+   */
   bank() {
+    const pins = this.activePins();
+    const free = this.freeTracks();
+    const w = 8 - pins.size;
+    if (w > 0 && this.bankStart >= free.length) this.bankStart = Math.max(0, Math.floor((free.length - 1) / w) * w);
+    if (!pins.size) return free.slice(this.bankStart, this.bankStart + 8);
     const all = this.tracks();
-    if (this.bankStart >= all.length) this.bankStart = Math.max(0, Math.floor((all.length - 1) / 8) * 8);
-    return all.slice(this.bankStart, this.bankStart + 8);
+    let k = this.bankStart;
+    return Array.from({ length: 8 }, (_, col) => {
+      const pin = pins.get(col);
+      return pin ? all.find((t) => t.id === pin.id) ?? null : free[k++] ?? null;
+    });
+  }
+
+  /**
+   * Layout held + a select pad: pin the track that column shows, or unpin it if it's pinned
+   * there. Pinning leaves every strip where it was. Unpinning keeps that track on its strip,
+   * with its own neighbours banking around it. With the pins switched off, a pin switches them
+   * back on.
+   */
+  togglePin(col) {
+    if (col < 0 || col > 7) return;
+    const shown = this.bank()[col];
+    const pin = this.activePins().get(col);
+    if (!shown && !pin) return;
+    this.releaseAll();
+    if (pin) {
+      this.pins.delete(col);
+      const free = this.freeTracks();
+      const i = shown ? free.indexOf(shown) : -1;
+      if (i >= 0) {
+        const freeCol = Array.from({ length: col }, (_, c) => c).filter((c) => !this.pins.has(c)).length;
+        this.bankStart = Math.max(0, i - freeCol);
+      }
+    } else {
+      if (!this.pinsOn) { this.pinsOn = true; [this.bankStart, this.otherBankStart] = [this.otherBankStart, this.bankStart]; }
+      for (const [c, p] of this.pins) if (p.id === shown.id) this.pins.delete(c);
+      this.pins.set(col, { id: shown.id, name: shown.name.value ?? '' });
+    }
+    this.notice = null;
+    this.onPinsChange();
+    this.onChange();
+  }
+
+  /** Layout tapped: all tracks <-> the pins, each view keeping its own bank position. */
+  togglePins() {
+    if (!this.pins.size) {
+      this.notice = 'To pin a track to its strip: hold Layout and press its select pad';
+      this.onChange();
+      return;
+    }
+    this.releaseAll();
+    this.pinsOn = !this.pinsOn;
+    [this.bankStart, this.otherBankStart] = [this.otherBankStart, this.bankStart];
+    this.notice = null;
+    this.onPinsChange();
+    this.onChange();
+  }
+
+  /** The pins as saved with the session. */
+  pinsData() {
+    return { on: this.pinsOn, pins: [...this.pins].map(([col, p]) => ({ col, id: p.id, name: p.name })) };
+  }
+
+  /** Put back pins saved with the session (anything malformed is skipped). */
+  setPins(data) {
+    this.pins = new Map();
+    for (const p of Array.isArray(data?.pins) ? data.pins : []) {
+      if (Number.isInteger(p?.col) && p.col >= 0 && p.col < 8 && typeof p.id === 'string' && p.id) this.pins.set(p.col, { id: p.id, name: String(p.name ?? '') });
+    }
+    this.pinsOn = data?.on !== false;
+    this.bankStart = 0;
+    this.otherBankStart = 0;
+    this.releaseAll();
+    this.onChange();
   }
 
   controlFor(track, mode = this.mode) {
@@ -375,9 +477,11 @@ class Surface {
       });
     }
     const bank = this.bank();
+    const pins = this.activePins();
     return Array.from({ length: 8 }, (_, i) => {
       const track = bank[i];
-      if (!track) return { index: i, empty: true };
+      const pin = pins.get(i);
+      if (!track) return pin ? { index: i, empty: true, pinned: true, missing: pin.name } : { index: i, empty: true };
       const c = this.controlFor(track);
       return {
         index: i,
@@ -388,6 +492,7 @@ class Surface {
         display: c?.display.value ?? '',
         touched: this.touchedStrips.has(i),
         selected: this.session.focusedTrack.value === track,
+        pinned: !!pin,
       };
     });
   }
@@ -410,26 +515,30 @@ class Surface {
       this.onChange();
       return;
     }
-    const n = this.tracks().length;
-    const next = this.bankStart + 8 * dir;
-    if (next < 0 || next >= n) return;
+    // Tracks page by the free strips' width (8, or 8 less the pins).
+    const w = this.bankWidth();
+    const n = this.freeTracks().length;
+    const next = dir < 0 ? Math.max(0, this.bankStart - w) : this.bankStart + w;
+    if (w <= 0 || next === this.bankStart || next >= n) return;
     this.releaseAll();
     this.bankStart = next;
     this.onChange();
   }
 
   /**
-   * LUNA's selection moved: if the selected track is not among the eight on show, page to the
-   * bank that holds it, keeping the bank's alignment (PushDesk's bankTo). Called only when the
-   * selection CHANGES, so a bank you paged to by hand is never undone (PUSH CLAUDE.md, 2026-10-05).
+   * LUNA's selection moved: if the selected track is not on show, page the free strips to it,
+   * keeping the bank's alignment (PushDesk's bankTo). A pinned track is always on show. Called
+   * only when the selection CHANGES, so a bank you paged to by hand is never undone (PUSH
+   * CLAUDE.md, 2026-10-05).
    */
   followSelection(track = this.session.focusedTrack.value) {
-    const all = this.tracks();
-    const i = track ? all.indexOf(track) : -1;
-    if (i < 0 || (i >= this.bankStart && i < this.bankStart + 8)) return false;
-    const offset = this.bankStart % 8;
+    const free = this.freeTracks();
+    const w = this.bankWidth();
+    const i = track ? free.indexOf(track) : -1;
+    if (w <= 0 || i < 0 || (i >= this.bankStart && i < this.bankStart + w)) return false;
+    const offset = this.bankStart % w;
     this.releaseAll();
-    this.bankStart = Math.max(0, offset + Math.floor((i - offset) / 8) * 8);
+    this.bankStart = Math.max(0, offset + Math.floor((i - offset) / w) * w);
     this.onChange();
     return true;
   }
@@ -615,6 +724,7 @@ class Surface {
   async padPress(note) {
     const n = note - PUSH.PAD_BASE, row = Math.floor(n / 8), col = n % 8;
     const what = PAD_ROWS[row];
+    if (what === 'select' && this.layoutHeld) { this.layoutUsed = true; this.togglePin(col); return; }
     const track = this.bank()[col];
     if (!what || !track) return;
     if (what === 'select') {
@@ -649,6 +759,11 @@ class Surface {
     if (type === 'controlChange') {
       if (d1 >= PUSH.ENCODER_CC && d1 < PUSH.ENCODER_CC + 8) { this.encoderTurn(d1 - PUSH.ENCODER_CC, d2); return true; }
       if (d1 === PUSH.SHIFT_CC) { const was = this.shift; this.shift = d2 > 0; if (was !== this.shift) this.onChange(); return true; }
+      if (d1 === PUSH.LAYOUT_CC) { // a modifier while held; a tap with no pad pressed meanwhile = pins off/on
+        if (d2 > 0) { this.layoutHeld = true; this.layoutUsed = false; this.onChange(); }
+        else if (this.layoutHeld) { this.layoutHeld = false; if (!this.layoutUsed) this.togglePins(); else this.onChange(); }
+        return true;
+      }
       const ours = (d1 >= PUSH.KNOBSET_CC && d1 < PUSH.KNOBSET_CC + 8) || (d1 >= PUSH.LOWER_ROW_CC && d1 < PUSH.LOWER_ROW_CC + 8)
         || [PUSH.PAGE_PREV_CC, PUSH.PAGE_NEXT_CC, PUSH.FAVOURITES_CC, PUSH.LAST_KNOBSET_CC].includes(d1);
       if (d2 === 0) return ours; // releases
@@ -800,6 +915,14 @@ class MotorFader {
     this.onChange();
   }
 
+  /** The track list changed: a locked track that has been deleted lets go (as PushDesk does). */
+  checkLock() {
+    if (!this.locked || this.session.tracks.byId(this.locked.id)) return;
+    this.locked = null;
+    this.follow({ now: true });
+    this.onChange();
+  }
+
   setMotors(on) {
     this.motorsOn = on;
     if (on) { this.lastSent = undefined; this.queueMotor({ now: true }); }
@@ -849,11 +972,13 @@ const LED = {
   SEL_DIM: 107,    // dim, for the coloured knobset buttons: (20, 20, 24, W 0)
   WHITE_DIM: 118,  // dim, for white buttons (Shift, Delete, arrows): (20, 20, 24, W 20)
   MUTE: 103, MUTE_DIM: 108, SOLO: 105, SOLO_DIM: 109, REC: 106, REC_DIM: 110,
+  PIN: 111, PIN_DIM: 112, // the select row while Layout is held: pinned strips bright
   PALETTE: [
     [102, 200, 200, 200, 90], [107, 20, 20, 24, 0], [118, 20, 20, 24, 20],
     [103, 255, 100, 0, 0], [108, 18, 7, 0, 0],   // mute: orange
     [105, 255, 200, 0, 0], [109, 18, 13, 0, 0],  // solo: yellow
     [106, 255, 0, 0, 0], [110, 18, 0, 0, 0],     // record: red
+    [111, 0, 140, 255, 0], [112, 0, 9, 18, 0],   // pins: blue
   ],
 };
 
@@ -871,10 +996,12 @@ function buttonLeds(surface, fader, { off = false } = {}) {
     const mode = MODES[k];
     out[PUSH.KNOBSET_CC + k] = off || !mode ? 0 : surface?.mode === mode ? LED.SEL : LED.SEL_DIM;
   }
-  const n = surface?.tracks().length ?? 0;
-  out[PUSH.PAGE_PREV_CC] = !off && surface && surface.bankStart > 0 ? LED.WHITE_DIM : 0;
-  out[PUSH.PAGE_NEXT_CC] = !off && surface && surface.bankStart + 8 < n ? LED.WHITE_DIM : 0;
+  const n = surface?.freeTracks().length ?? 0;
+  const w = surface?.bankWidth() ?? 8;
+  out[PUSH.PAGE_PREV_CC] = !off && surface && w > 0 && surface.bankStart > 0 ? LED.WHITE_DIM : 0;
+  out[PUSH.PAGE_NEXT_CC] = !off && surface && w > 0 && surface.bankStart + w < n ? LED.WHITE_DIM : 0;
   out[PUSH.SHIFT_CC] = off ? 0 : surface?.shift ? LED.SEL : LED.WHITE_DIM;
+  out[PUSH.LAYOUT_CC] = off || !surface ? 0 : surface.layoutHeld || surface.activePins().size ? LED.SEL : LED.WHITE_DIM;
   out[FADER.LOCK_CC] = off || !fader ? 0 : fader.locked ? LED.SEL : LED.WHITE_DIM;
   // Lower row: the selected track's inserts, dim when there's a plugin, bright for the one in PLUG.
   for (let k = 0; k < 8; k++) {
@@ -895,11 +1022,14 @@ function padLeds(surface, { off = false } = {}) {
   const out = {};
   const bank = off || !surface ? [] : surface.bank();
   const focused = surface?.session.focusedTrack.value;
+  const pins = off || !surface ? new Map() : surface.activePins();
+  const pinning = !off && !!surface?.layoutHeld; // Layout held: the select row shows the pins
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const t = bank[col];
       let v = 0;
-      if (t && row === 0) v = t === focused ? LED.SEL : LED.SEL_DIM;
+      if (row === 0 && pinning) v = pins.has(col) ? LED.PIN : t ? LED.PIN_DIM : 0;
+      else if (t && row === 0) v = t === focused ? LED.SEL : LED.SEL_DIM;
       if (t && row === 1) v = t.mute?.on ? LED.MUTE : LED.MUTE_DIM;
       if (t && row === 2) v = t.solo?.on ? LED.SOLO : LED.SOLO_DIM;
       if (t && row === 3) v = t.recordEnabled?.value ? LED.REC | 0x100 : LED.REC_DIM;
@@ -966,26 +1096,36 @@ function displayState(surface, fader) {
     mfader: fader ? { on: true, lock: fader.locked ? (fader.locked.name.value ?? 'locked') : '', motorsOff: !fader.motorsOn } : null,
   };
   const all = surface.tracks();
+  const pins = surface.activePins();
+  const width = surface.bankWidth();
+  if (pins.size) {
+    // PushDesk's view header: "PINS  bank a-b" over the free strips (its views count from 0).
+    state.view = 'PINS';
+    state.bank = surface.bankStart;
+    state.bankWidth = width;
+  }
   if (surface.mode === 'fader') {
     const bank = surface.bank();
-    const taper = bank[0]?.gain.taper?.value;
+    const taper = bank.find(Boolean)?.gain.taper?.value;
     state.unityPos = taper?.toNormalized ? taper.toNormalized(0) : 0.594;
     state.strips = Array.from({ length: 8 }, (_, i) => {
       const t = bank[i];
-      if (!t) return { i, live: false };
+      const pin = pins.get(i);
+      if (!t) return pin ? { i, live: false, pinned: true, missing: true, name: pin.name } : { i, live: false };
       const g = t.gain;
       const db = Number(g.real.value);
-      return { i, live: true, name: t.name.value ?? '', value: Number.isFinite(db) ? db : -144, pos: g.normalized.value ?? 0, colour: hex(t.color.value), track: all.indexOf(t) + 1, selected: t === focused, touch: surface.touchedStrips.has(i), type: '' };
+      return { i, live: true, name: t.name.value ?? '', value: Number.isFinite(db) ? db : -144, pos: g.normalized.value ?? 0, colour: hex(t.color.value), track: all.indexOf(t) + 1, selected: t === focused, touch: surface.touchedStrips.has(i), type: '', pinned: !!pin };
     });
   } else {
     const strips = surface.strips();
-    const count = PLUG_MODES.includes(surface.mode) ? surface.plugParams().length : surface.bank().length;
+    const plug = PLUG_MODES.includes(surface.mode);
+    const count = plug ? surface.plugParams().length : surface.freeTracks().length;
     state.knobset = {
-      name: PLUG_MODES.includes(surface.mode) ? (surface.plug?.effect?.pluginName.value ?? 'no plugin') : MODE_LABEL[surface.mode],
-      page: PLUG_MODES.includes(surface.mode) ? surface.plugPage : Math.floor(surface.bankStart / 8),
-      pages: PLUG_MODES.includes(surface.mode) ? Math.max(1, Math.ceil(count / 8)) : Math.max(1, Math.ceil(all.length / 8)),
-      bound: !PLUG_MODES.includes(surface.mode) || !!surface.plug?.effect,
-      knobs: strips.map((s, i) => ({ i, live: !s.empty, name: s.name ?? '', value: s.display ?? '', param: i + 1, index: Math.round((s.value ?? 0) * 1023), lo: -1, touch: !!s.touched })),
+      name: plug ? (surface.plug?.effect?.pluginName.value ?? 'no plugin') : MODE_LABEL[surface.mode],
+      page: plug ? surface.plugPage : width > 0 ? Math.floor(surface.bankStart / width) : 0,
+      pages: plug ? Math.max(1, Math.ceil(count / 8)) : width > 0 ? Math.max(1, Math.ceil(count / width)) : 1,
+      bound: !plug || !!surface.plug?.effect,
+      knobs: strips.map((s, i) => ({ i, live: !s.empty, name: s.name ?? s.missing ?? '', value: s.display ?? '', param: i + 1, index: Math.round((s.value ?? 0) * 1023), lo: -1, touch: !!s.touched, pinned: !!s.pinned, missing: s.missing !== undefined })),
     };
   }
   const meterOf = (t) => {
@@ -1000,6 +1140,29 @@ function displayState(surface, fader) {
   return { state, meters };
 }
 
+/**
+ * Pins are saved with the session: session storage, context = the Add On id, one field
+ * (record 'layout', field 'pins'), set in place once added, never removed and re-added (LUNA
+ * can lose a record that is). Session storage writes are not undo steps.
+ */
+const STORE = { CONTEXT: 'com.ranrun.pushdesk_luna', RECORD: 'layout', FIELD: 'pins' };
+
+async function loadPins(session) {
+  const store = session.storage.context(STORE.CONTEXT);
+  await store.load();
+  return store.value(STORE.RECORD, STORE.FIELD).value ?? null;
+}
+
+async function savePins(session, data) {
+  const store = session.storage.context(STORE.CONTEXT);
+  await store.load();
+  if (store.value(STORE.RECORD, STORE.FIELD).value === undefined) await store.add(STORE.RECORD, STORE.FIELD, data);
+  else await store.set(STORE.RECORD, STORE.FIELD, data);
+}
+
+AddOnLogic.loadPins = loadPins;
+AddOnLogic.savePins = savePins;
+AddOnLogic.STORE = STORE;
 AddOnLogic.displayState = displayState;
 AddOnLogic.LED = LED;
 AddOnLogic.paletteSysEx = paletteSysEx;

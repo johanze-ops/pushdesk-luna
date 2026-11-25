@@ -555,3 +555,184 @@ describe('EQ and DYN buttons (channel strip sections)', () => {
     expect(L.displayState(surface, null).state.buttons.top.slice(4, 6)).toEqual(['EQ', 'DYN']);
   });
 });
+
+describe('pinned tracks (Layout + select pad)', () => {
+  const pad = (row, col) => 36 + row * 8 + col;
+  const names = (surface) => surface.bank().map((t) => t?.name.value ?? null);
+  const T = (...ns) => ns.map((n) => `T${n}`);
+  /** Hold Layout, press the select pads of these columns, let go. */
+  const pin = (surface, ...cols) => {
+    surface.handleMidi(cc(L.PUSH.LAYOUT_CC, 127));
+    for (const c of cols) surface.handleMidi(note(pad(0, c), true));
+    surface.handleMidi(cc(L.PUSH.LAYOUT_CC, 0));
+  };
+  const tap = (surface) => { surface.handleMidi(cc(L.PUSH.LAYOUT_CC, 127)); surface.handleMidi(cc(L.PUSH.LAYOUT_CC, 0)); };
+
+  it('a pinned track stays on its strip while the others bank around it', async () => {
+    const { engine, session, surface } = await connected(20);
+    const before = session.context.selectionTracks.value;
+    pin(surface, 0, 2);
+    await sleep(20); await engine.settled();
+    expect(session.context.selectionTracks.value).toEqual(before); // a pin is not a select
+    expect(names(surface)).toEqual(T(1, 2, 3, 4, 5, 6, 7, 8));   // pinning moves nothing
+    expect(surface.bankWidth()).toBe(6);
+    surface.handleMidi(cc(45, 127));
+    expect(names(surface)).toEqual(T(1, 9, 3, 10, 11, 12, 13, 14)); // pages by the six free strips
+    surface.handleMidi(cc(45, 127));
+    expect(names(surface)).toEqual(T(1, 15, 3, 16, 17, 18, 19, 20));
+    surface.handleMidi(cc(45, 127)); // the end
+    expect(surface.bankStart).toBe(12);
+    surface.handleMidi(cc(44, 127));
+    surface.handleMidi(cc(44, 127));
+    expect(names(surface)).toEqual(T(1, 2, 3, 4, 5, 6, 7, 8));
+  });
+
+  it('pads, encoders and lights act on the tracks shown, pinned ones included', async () => {
+    const { engine, session, surface } = await connected(20);
+    pin(surface, 0);
+    surface.handleMidi(cc(45, 127)); // T1 pinned, then T9-T15
+    expect(surface.targetFor(0)).toBe(session.visibleTracks[0].gain);
+    expect(surface.targetFor(1)).toBe(session.visibleTracks[8].gain);
+    surface.handleMidi(note(pad(1, 0), true));
+    surface.handleMidi(note(pad(1, 1), true));
+    await sleep(20); await engine.settled();
+    expect(session.visibleTracks[0].mute.on).toBe(true);
+    expect(session.visibleTracks[8].mute.on).toBe(true);
+    expect(L.padLeds(surface)[pad(1, 1)]).toBe(L.LED.MUTE);
+  });
+
+  it('a tap on Layout switches to all tracks and back, each view keeping its own bank', async () => {
+    const { surface } = await connected(20);
+    let saves = 0;
+    surface.onPinsChange = () => saves++;
+    pin(surface, 0);
+    surface.handleMidi(cc(45, 127));
+    expect(names(surface)).toEqual(T(1, 9, 10, 11, 12, 13, 14, 15));
+    tap(surface);
+    expect(surface.pinsOn).toBe(false);
+    expect(names(surface)).toEqual(T(1, 2, 3, 4, 5, 6, 7, 8));
+    surface.handleMidi(cc(45, 127));
+    expect(names(surface)).toEqual(T(9, 10, 11, 12, 13, 14, 15, 16));
+    tap(surface);
+    expect(names(surface)).toEqual(T(1, 9, 10, 11, 12, 13, 14, 15));
+    tap(surface);
+    expect(names(surface)).toEqual(T(9, 10, 11, 12, 13, 14, 15, 16));
+    // pinning with the pins off switches them back on, the old pins too
+    pin(surface, 2); // T11 in the all-tracks view
+    expect(surface.pinsOn).toBe(true);
+    expect(names(surface)).toEqual(T(1, 9, 11, 10, 12, 13, 14, 15));
+    expect(saves).toBe(5); // every pin and every tap saves
+  });
+
+  it('a tap with nothing pinned says how to pin', async () => {
+    const { surface } = await connected(10);
+    tap(surface);
+    expect(surface.pinsOn).toBe(true);
+    expect(surface.notice).toMatch(/hold Layout/);
+  });
+
+  it('selecting a track pages the free strips to it; a pinned one is already there', async () => {
+    const { engine, session, surface } = await connected(20);
+    const ctx = session.context;
+    const select = async (i) => { await ctx.selectionTracks.set([session.visibleTracks[i].id]); await ctx.lastSelectedTrack.set(session.visibleTracks[i].id); await engine.settled(); };
+    pin(surface, 0);
+    await select(15);
+    expect(surface.followSelection()).toBe(true);
+    expect(names(surface)).toEqual([...T(1, 16, 17, 18, 19, 20), null, null]); // the end of the session
+    await select(0);
+    expect(surface.followSelection()).toBe(false);
+    expect(surface.bankStart).toBe(14);
+  });
+
+  it('unpinning keeps the track on its strip, with its own neighbours around it', async () => {
+    const { engine, session, surface } = await connected(20);
+    surface.handleMidi(cc(45, 127));
+    surface.handleMidi(cc(45, 127)); // T17-T20
+    pin(surface, 1);                 // T18
+    const ctx = session.context;
+    await ctx.selectionTracks.set([session.visibleTracks[2].id]); await ctx.lastSelectedTrack.set(session.visibleTracks[2].id); await engine.settled();
+    surface.followSelection();
+    expect(names(surface)).toEqual(T(3, 18, 4, 5, 6, 7, 8, 9));
+    pin(surface, 1);                 // unpin T18
+    expect(surface.pins.size).toBe(0);
+    expect(names(surface)).toEqual(T(17, 18, 19, 20));
+  });
+
+  it('a pinned track that is gone leaves its strip empty, holding its place', async () => {
+    const { surface } = await connected(20);
+    surface.setPins({ on: true, pins: [{ col: 2, id: 'gone', name: 'Old Vox' }, { col: 9, id: 'x' }, { col: 1 }, null] });
+    expect(surface.pins.size).toBe(1); // the malformed ones are skipped
+    expect(names(surface)).toEqual(['T1', 'T2', null, 'T3', 'T4', 'T5', 'T6', 'T7']);
+    expect(surface.strips()[2]).toEqual({ index: 2, empty: true, pinned: true, missing: 'Old Vox' });
+    const { state } = L.displayState(surface, null);
+    expect(state).toMatchObject({ view: 'PINS', bank: 0, bankWidth: 7 });
+    expect(state.strips[2]).toEqual({ i: 2, live: false, pinned: true, missing: true, name: 'Old Vox' });
+    expect(state.strips[3]).toMatchObject({ live: true, name: 'T3', track: 3, pinned: false });
+    pin(surface, 2); // Layout + its pad unpins it
+    expect(surface.pins.size).toBe(0);
+    expect(names(surface)).toEqual(T(1, 2, 3, 4, 5, 6, 7, 8));
+  });
+
+  it('the screen marks pins; PAN pages by the free strips', async () => {
+    const { surface } = await connected(20);
+    expect(L.displayState(surface, null).state.view).toBeUndefined();
+    pin(surface, 0);
+    let { state } = L.displayState(surface, null);
+    expect(state.strips[0]).toMatchObject({ live: true, name: 'T1', pinned: true });
+    expect(state.strips[1].pinned).toBe(false);
+    surface.handleMidi(cc(103, 127)); // PAN
+    ({ state } = L.displayState(surface, null));
+    expect(state.knobset).toMatchObject({ page: 0, pages: 3 }); // 19 free tracks, 7 at a time
+    expect(state.knobset.knobs[0]).toMatchObject({ name: 'T1', pinned: true, missing: false });
+  });
+
+  it('Layout lights; held, the select row shows the pins in blue', async () => {
+    const { session, surface } = await connected(10);
+    expect(L.buttonLeds(surface, null)[L.PUSH.LAYOUT_CC]).toBe(L.LED.WHITE_DIM);
+    surface.handleMidi(cc(L.PUSH.LAYOUT_CC, 127));
+    expect(L.buttonLeds(surface, null)[L.PUSH.LAYOUT_CC]).toBe(L.LED.SEL);
+    surface.handleMidi(note(pad(0, 1), true));
+    const leds = L.padLeds(surface);
+    expect(leds[pad(0, 1)]).toBe(L.LED.PIN);
+    expect(leds[pad(0, 0)]).toBe(L.LED.PIN_DIM);
+    expect(leds[pad(1, 0)]).toBe(L.LED.MUTE_DIM); // the other rows as usual
+    surface.handleMidi(cc(L.PUSH.LAYOUT_CC, 0));
+    const focused = session.focusedTrack.value === session.visibleTracks[1];
+    expect(L.padLeds(surface)[pad(0, 1)]).toBe(focused ? L.LED.SEL : L.LED.SEL_DIM);
+    expect(L.buttonLeds(surface, null)[L.PUSH.LAYOUT_CC]).toBe(L.LED.SEL); // pins on
+    tap(surface);
+    expect(L.buttonLeds(surface, null)[L.PUSH.LAYOUT_CC]).toBe(L.LED.WHITE_DIM); // pins off
+    expect(L.paletteSysEx().map((m) => m[7])).toEqual(expect.arrayContaining([L.LED.PIN, L.LED.PIN_DIM]));
+  });
+
+  it('pins are saved with the session and come back', async () => {
+    const { session, surface } = await connected(10);
+    expect(await L.loadPins(session)).toBe(null);
+    pin(surface, 4);
+    await L.savePins(session, surface.pinsData());
+    tap(surface);
+    await L.savePins(session, surface.pinsData()); // set in place the second time
+    const t5 = session.visibleTracks[4];
+    expect(await L.loadPins(session)).toEqual({ on: false, pins: [{ col: 4, id: t5.id, name: 'T5' }] });
+    const fresh = new L.Surface(session);
+    fresh.setPins(await L.loadPins(session));
+    expect(fresh.pinsOn).toBe(false);
+    tap(fresh);
+    expect(fresh.bank()[4]).toBe(t5);
+  });
+});
+
+describe('the motor fader lock', () => {
+  it('lets go when the locked track is deleted', async () => {
+    const { session } = await connected(3);
+    const fader = new L.MotorFader(session, () => {});
+    await fader.attach(session.visibleTracks[1]);
+    fader.toggleLock();
+    expect(fader.locked).toBe(session.visibleTracks[1]);
+    fader.checkLock(); // still there: stays locked
+    expect(fader.locked).toBe(session.visibleTracks[1]);
+    fader.locked = { id: 'deleted', name: { value: 'Gone' } };
+    fader.checkLock();
+    expect(fader.locked).toBe(null);
+  });
+});

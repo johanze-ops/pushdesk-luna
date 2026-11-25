@@ -30,6 +30,8 @@
     .meter { width: 6px; background: #1f1f1f; border-radius: 2px; position: relative; overflow: hidden; }
     .meter .lvl { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: linear-gradient(to top, #57ab5a 0%, #57ab5a 70%, #e2c541 88%, #e5534b 100%); transform-origin: bottom; transform: scaleY(0); }
     .enc { position: absolute; top: 4px; right: 6px; font-size: 10px; color: #555; }
+    .strip.pinned .enc { color: #111; background: #3b8eea; border-radius: 2px; padding: 0 3px; }
+    .strip.pinned.empty { opacity: .6; }
     #helper { display: flex; align-items: center; gap: 10px; padding: 5px 12px; background: #2a2618; color: var(--text); border-top: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
     #helper[hidden] { display: none; }
     #helper code { font: 11px Menlo, monospace; background: #111; padding: 3px 6px; border-radius: 3px; user-select: all; }

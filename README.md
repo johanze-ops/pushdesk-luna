@@ -42,6 +42,8 @@ reopens it with the session.
 | **↓** | FADER ↔ the last knobset |
 | **Touch strip** | the selected track's fader |
 | **Pads, bottom 4 rows** | select · mute · solo · record arm, for the 8 tracks on the encoders |
+| **Layout** + a select pad | pin that track to its strip (again = unpin); see below |
+| **Layout** (tap) | all tracks ↔ your pinned tracks |
 | **Delete** | lock the motor fader to its track (see below) |
 
 - **Selecting a track in LUNA** pages the Push to it. In PLUG, EQ and DYN the plugin control
@@ -50,6 +52,13 @@ reopens it with the session.
 - **Opening a plugin window** in LUNA puts it on the encoders.
 - **EQ / DYN** go straight to the selected track's channel strip (e.g. API Vision): EQ to its
   EQ page, DYN to the compressor, and DYN again to the gate.
+- **Pinned tracks** stay where they are while the other strips bank around them, as an Avid
+  surface's layouts do: pin the lead vocal and the mix bus, and Page moves the rest. Hold
+  **Layout** and press a strip's select pad to pin its track there (the select pads light blue
+  for pinned strips while Layout is held); press it again to unpin. Page then moves the free
+  strips by however many are free, and selecting a track in LUNA brings it onto a free strip.
+  Tap Layout to see all tracks, and again to get the pins back. The pins are saved with the
+  session. A pinned track you delete leaves its strip empty, so the others don't move.
 - **Several tracks selected:** moving one of them (encoder, touch strip or motor fader) moves
   them all by the same number of dB, as Logic does.
 
@@ -77,7 +86,8 @@ Files for the **API Vision Channel Strip** and the **UADx SSL E Channel Strip** 
 
 A one-fader motorised controller that speaks Mackie single-fader MIDI (14-bit pitch bend on
 channel 1 both ways, touch on note 104), named **PushDesk Fader**, follows the selected track:
-touch to take over, release to hand back, Delete on the Push to lock it to a track. Its solo
+touch to take over, release to hand back, Delete on the Push to lock it to a track (deleting
+that track lets go). Its solo
 (note 8), mute (16) and utility (54, motors off/on) buttons work too.
 
 ## The helper

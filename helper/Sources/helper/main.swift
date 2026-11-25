@@ -18,7 +18,7 @@ import AppKit
 import Foundation
 import Network
 
-let VERSION = "0.1.0"
+let VERSION = "0.1.5"
 let PORT: UInt16 = 47829
 let IDLE: TimeInterval = 10
 let LUNA_BUNDLE_ID = "com.uaudio.luna"

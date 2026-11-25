@@ -86,13 +86,23 @@ function paint() {
     const count = surface.plugParams().length;
     const pages = Math.max(1, Math.ceil(count / 8));
     $('bank').textContent = e ? `${surface.plug.channel.name.value ?? ''} › ${e.pluginName.value ?? 'plugin'} · page ${surface.plugPage + 1}/${pages}${surface.hasFavourites() ? (surface.favOn ? ' · favourites' : ' · all') : ''}` : 'No plugin: open one in LUNA, or press a button under the display';
+  } else if (surface.activePins().size) {
+    const free = surface.freeTracks().length, w = surface.bankWidth(), pinned = surface.activePins().size;
+    $('bank').textContent = `${pinned} pinned · ${w && free ? `the others ${surface.bankStart + 1}–${Math.min(surface.bankStart + w, free)} of ${free}` : 'no free strips'}`;
   } else {
-    $('bank').textContent = n ? `Tracks ${surface.bankStart + 1}–${Math.min(surface.bankStart + 8, n)} of ${n}` : 'No tracks';
+    $('bank').textContent = n ? `Tracks ${surface.bankStart + 1}–${Math.min(surface.bankStart + 8, n)} of ${n}${surface.pins.size ? ' · pins off (tap Layout)' : ''}` : 'No tracks';
   }
   const f = session?.focusedTrack.value;
   $('focus').innerHTML = f ? 'Touch strip: <b></b>' : '';
   if (f) $('focus').querySelector('b').textContent = f.name.value ?? '';
-  $('note').textContent = surface.notice ?? 'Encoders: tracks · touch strip: selected track · ◀ ▶ (Page): bank · upper row a/b: FADER / PAN · Shift: fine · pads: select / mute / solo / rec · d: PLUG · under the display: inserts · ↑: favourites · ↓: FADER ↔ last';
+  // The pin hint leads (the line is cut off at the panel's width): how to pin until something
+  // is pinned, then how to switch the pins off and on.
+  const pinHint = surface.pins.size
+    ? 'Pins: hold Layout + a select pad to pin / unpin · tap Layout: all tracks ↔ pins'
+    : 'Pin a track to its strip: hold Layout and press its select pad';
+  $('note').textContent = surface.notice ?? (surface.layoutHeld
+    ? 'Layout held: press a select pad to pin that track to its strip, or to unpin it'
+    : `${pinHint} · encoders: tracks · ◀ ▶: bank · a/b: FADER / PAN · d: PLUG · pads: select / mute / solo / rec · Shift: fine · under the display: inserts · ↑: favourites · ↓: FADER ↔ last`);
   const fd = $('fader');
   if (!fader) { fd.textContent = ''; }
   else {
@@ -106,7 +116,8 @@ function paint() {
     el.classList.toggle('empty', !!s.empty);
     el.classList.toggle('touched', !!s.touched);
     el.classList.toggle('selected', !!s.selected);
-    el.querySelector('.name').textContent = s.empty ? '—' : s.name;
+    el.classList.toggle('pinned', !!s.pinned);
+    el.querySelector('.name').textContent = s.empty ? (s.missing !== undefined ? `${s.missing || 'Pinned track'} (deleted)` : '—') : s.name;
     el.querySelector('.value').textContent = s.empty ? '' : s.display;
     el.querySelector('.colour').style.background = s.empty ? '#333' : s.param ? 'var(--accent)' : hex(s.color);
     const fill = el.querySelector('.fill'), pan = el.querySelector('.pan');
@@ -142,9 +153,10 @@ async function watchBank() {
     schedulePaint();
     return;
   }
-  const bank = surface.bank();
-  await Promise.all(bank.map((t) => t.loadStrip().catch(() => undefined)));
+  const bank = surface.bank(); // with pins: 8 columns, null where a pinned track is gone
+  await Promise.all(bank.map((t) => t?.loadStrip().catch(() => undefined)));
   bank.forEach((t, i) => {
+    if (!t) { els[i].querySelector('.lvl').style.transform = 'scaleY(0)'; return; }
     const c = surface.controlFor(t);
     stripUnsubs.push(t.name.onChange(schedulePaint), t.color.onChange(schedulePaint));
     // pad lights follow mute, solo and record arm
@@ -258,13 +270,25 @@ async function bindSession() {
     onChange: () => {
       const key = L.PLUG_MODES.includes(surface.mode)
         ? `plug:${surface.plug?.effect?.path}:${surface.plugPage}:${surface.favOn}:${surface.strips().map((x) => x.name).join('|')}`
-        : `${surface.mode}:${surface.bank().map((t) => t.id).join(',')}`;
+        : `${surface.mode}:${surface.bank().map((t) => t?.id ?? '-').join(',')}`;
       if (key !== lastBankKey) { lastBankKey = key; watchBank(); }
       schedulePaint();
     },
   });
   surface.loadFavourites = loadFavourites;
-  keep(session.tracks.onChange(() => surface.onChange()));
+  // Pinned tracks are saved with the session (not an undo step).
+  const mine = surface, inSession = session;
+  let saveTimer = null;
+  surface.onPinsChange = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => L.savePins(inSession, mine.pinsData()).catch((e) => console.warn('PushDesk: pins not saved', e)), 300);
+  };
+  try {
+    const saved = await L.loadPins(session);
+    if (saved && surface === mine) surface.setPins(saved);
+  } catch (e) { console.warn('PushDesk: no saved pins', e); }
+  if (surface !== mine) return; // the session changed while the pins loaded
+  keep(session.tracks.onChange(() => { surface.onChange(); fader?.checkLock(); }));
   keep(session.focusedTrack.onChange(() => { surface.followSelection(); surface.followPlugin(); watchSlots(); schedulePaint(); fader?.follow(); }));
   watchSlots();
   surface.onChange();
